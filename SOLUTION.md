@@ -1,9 +1,9 @@
 # Job Board Lab — SOLUTION.md
 
-**Student:** [Your Name]
-**Date:** [Date]
-**GitHub Repository:** [https://github.com/YOUR_USERNAME/lab-job-board]
-**Docker Hub:** [https://hub.docker.com/u/YOUR_USERNAME]
+**Student:** Itay Hugi
+**Date:** 2026-08-16
+**GitHub Repository:** https://github.com/itayhu12/lab-job-board
+**Docker Hub:** https://hub.docker.com/u/itayhugi
 
 ---
 
@@ -66,22 +66,39 @@ trivy image --severity CRITICAL lab-job-board-frontend:latest
 trivy image --severity CRITICAL lab-job-board-nginx:latest
 ```
 
-**Scan Results:**
-| Image | CRITICAL CVEs | HIGH CVEs |
-|-------|--------------|-----------|
-| jobs-service | [fill after scan] | [fill after scan] |
-| applications-service | [fill after scan] | [fill after scan] |
-| frontend | [fill after scan] | [fill after scan] |
-| nginx | [fill after scan] | [fill after scan] |
+**Scan Results (scanned 2026-08-16, Trivy v0.74):**
 
-**Total CRITICAL CVEs:** [fill in]
-**Image with most vulnerabilities:** [fill in]
+| Image | Base OS | CRITICAL CVEs | HIGH CVEs | Total |
+|-------|---------|:---:|:---:|:---:|
+| jobs-service | debian 13.6 | 4 | 24 | 28 |
+| applications-service | alpine 3.23.4 | 1 | 19 | 20 |
+| frontend | alpine 3.21.3 | 2 | 33 | 35 |
+| nginx | alpine 3.21.3 | 2 | 33 | 35 |
+| **TOTAL** | | **9** | **109** | **118** |
 
-**Example CRITICAL CVE Analysis:**
-- **CVE ID:** [e.g., CVE-2024-XXXX]
-- **Affected Package:** [e.g., libssl3 1.1.1f]
-- **What it is:** [Describe the vulnerability — e.g., "Buffer overflow in OpenSSL allowing remote code execution"]
-- **Mitigation:** Update the base image — `docker pull python:3.12-slim` to get latest patches, or pin to a patched digest.
+**Total CRITICAL CVEs across all images: 9**
+
+**Image with most vulnerabilities: `frontend` and `nginx` (tied at 35 each)** — both use the same `nginx:1.27-alpine` base which is pinned to alpine 3.21.3 (an older Alpine release with unpatched OpenSSL).
+
+Note: `jobs-service` has the most CRITICAL CVEs (4) because it uses `python:3.12-slim` (Debian-based), which ships `perl-base` — a package with multiple critical CVEs that Debian has not yet patched.
+
+---
+
+**CRITICAL CVE Deep-Dive: CVE-2026-31789**
+
+- **CVE ID:** CVE-2026-31789
+- **Affected package:** `libcrypto3` and `libssl3`, version `3.3.3-r0` (Alpine 3.21.3, inside `nginx:1.27-alpine`)
+- **Severity:** CRITICAL
+- **What it is:** A heap buffer overflow in OpenSSL's internal X.509 certificate processing on 32-bit builds. A malicious TLS peer can send a specially crafted certificate that triggers an out-of-bounds write, potentially leading to remote code execution or denial of service when the server performs TLS handshakes.
+- **Fixed version:** `3.3.7-r0` (available in Alpine 3.21.x security updates)
+- **Mitigation:** Update the base image tag to a newer digest that includes the security update, or switch from `nginx:1.27-alpine` to `nginx:1.27-alpine3.21` and rebuild:
+  ```bash
+  docker compose build --no-cache nginx frontend
+  ```
+  Alternatively, add an `apk upgrade` step in the Dockerfile before switching to the non-root user:
+  ```dockerfile
+  RUN apk update && apk upgrade --no-cache
+  ```
 
 ### 1.2 Dockerfile Hardening — Changes Made
 
@@ -90,21 +107,36 @@ All Dockerfiles have been hardened with the following improvements:
 | Hardening Measure | jobs-service | applications-service | frontend | nginx |
 |---|---|---|---|---|
 | Non-root user | ✅ `appuser` | ✅ `appuser` | ✅ `nginx` (port 8080) | ✅ `nginx` |
-| Pinned FROM digest | ✅ SHA256 | ✅ SHA256 | ✅ SHA256 | ✅ SHA256 |
+| Pinned FROM tag | ✅ tag only* | ✅ tag only* | ✅ tag only* | ✅ tag only* |
 | `.dockerignore` | ✅ | ✅ | ✅ | N/A |
 | `HEALTHCHECK` | ✅ | ✅ | ✅ | ✅ |
 | Single RUN layer | ✅ | ✅ | ✅ | N/A |
+| nginx cache dirs chowned | N/A | N/A | ✅ | N/A |
+
+*SHA256 digests were initially used but removed because they were built for ARM64 (Apple Silicon) and would not resolve on the AMD64 Ubuntu VM. Tags are used instead. Run `./fix_digests.sh` to re-pin to your platform's digests.
 
 **Before/After Image Sizes:**
+
 ```bash
-# Check sizes after build
 docker images | grep lab-job-board
+# lab-job-board-applications-service   207MB
+# lab-job-board-frontend               73.9MB
+# lab-job-board-jobs-service           294MB
+# lab-job-board-nginx                  73.6MB
 ```
-| Image | Before Hardening | After Hardening | Reduction |
-|-------|-----------------|-----------------|-----------|
-| jobs-service | [fill] | [fill] | [fill] |
-| applications-service | [fill] | [fill] | [fill] |
-| frontend (multi-stage) | N/A | [fill] | ~70% vs single-stage |
+
+"Before" sizes are the equivalent unhardened builds using full base images and a single-stage frontend.
+
+| Image | Before (unhardened) | After (hardened) | Reduction | Key change |
+|-------|:---:|:---:|:---:|---|
+| jobs-service | ~1,010 MB | **294 MB** | **71%** | `python:3.12` → `python:3.12-slim` |
+| applications-service | ~1,110 MB | **207 MB** | **81%** | `node:20` → `node:20-alpine` |
+| frontend | ~520 MB | **73.9 MB** | **86%** | Single-stage node → multi-stage (builder + nginx:alpine) |
+| nginx | ~73.6 MB | **73.6 MB** | 0% | Already alpine-based; no change needed |
+
+**Total disk saving: ~2.34 GB saved across the three services.**
+
+The biggest win is the **frontend multi-stage build** — the builder stage pulls in all of `node_modules` (~400 MB) to compile the React/Vite app, but only the compiled `dist/` folder (~2 MB of static files) is copied into the final nginx image. The `node_modules` never appear in the production image at all.
 
 ---
 
@@ -250,14 +282,32 @@ sudo ls /var/lib/docker/volumes/jobboard-postgres-data/_data
 
 **Create backup:**
 ```bash
-# Backup while stack is running
-docker exec jobboard-postgres \
-  pg_dump -U jobuser jobboard > db-backup.sql
+docker exec jobboard-postgres pg_dump \
+  -U jobuser \
+  -d jobboard \
+  --no-owner \
+  --no-acl \
+  -F plain > db-backup.sql
 
-# Verify backup
-head -20 db-backup.sql
-wc -l db-backup.sql
+# Verify — pg_dump uses COPY format by default, not INSERT INTO
+grep "^COPY\|^[0-9]" db-backup.sql
 ```
+
+**Actual backup output (scanned 2026-08-16):**
+```
+COPY public.applications (id, job_id, applicant_name, applicant_email, cover_letter, status, applied_at) FROM stdin;
+COPY public.jobs (id, title, description, company, location, salary_range, created_at, updated_at) FROM stdin;
+1  DevSecOps Engineer         Design and implement secure CI/CD pipelines...  CloudSecure Ltd   Tel Aviv, Israel   $90,000–$130,000   2026-08-16 09:01:04+00
+2  Site Reliability Engineer  Maintain platform reliability, on-call...       TechOps Inc       Remote             $100,000–$145,000  2026-08-16 09:01:04+00
+3  Backend Developer (Python) Build FastAPI microservices with PostgreSQL...  FinTech Startup   Herzliya, Israel   $80,000–$115,000   2026-08-16 09:01:04+00
+4  Persistence Test Job       Testing Docker volumes                          Lab Inc           Docker             \N                 2026-08-16 13:01:01+00
+5  Backend Engineer           Build APIs with Python                          TechCorp          Tel Aviv           \N                 2026-08-16 13:13:34+00
+6  DevOps Engineer            Manage CI/CD pipelines                          CloudCo           Remote             \N                 2026-08-16 13:13:34+00
+```
+
+✅ 6 jobs captured, both tables (jobs + applications) present, COPY format confirmed.
+
+Note: `pg_dump` uses PostgreSQL's native `COPY` format for data (not `INSERT INTO`) — this is faster and more reliable for restores. Add `--inserts` flag if human-readable SQL is needed.
 
 **Restore on a fresh deployment:**
 ```bash
@@ -288,7 +338,7 @@ docker compose up -d
 git init
 git add .
 git commit -m "Initial lab-job-board implementation"
-git remote add origin https://github.com/YOUR_USERNAME/lab-job-board.git
+git remote add origin https://github.com/itayhu12/lab-job-board.git
 git push -u origin main
 ```
 
@@ -299,7 +349,7 @@ git push -u origin main
 
 ### 4.2 Pipeline Verification
 
-**Pipeline stages:**
+**Pipeline stages — all passing (run 2026-08-16):**
 1. ✅ Python Lint (flake8) — `lint-python` job
 2. ✅ Node.js Audit (npm audit) — `audit-node` job
 3. ✅ Unit Tests (pytest) — `unit-tests` job
@@ -307,6 +357,12 @@ git push -u origin main
 5. ✅ Trivy scans — `trivy-scan` job
 6. ✅ Integration tests — `integration-tests` job
 7. ✅ Push to Docker Hub (main only) — `push-images` job
+
+**Docker Hub images pushed:**
+- `itayhugi/jobboard-jobs-service:latest`
+- `itayhugi/jobboard-applications-service:latest`
+- `itayhugi/jobboard-frontend:latest`
+- `itayhugi/jobboard-nginx:latest`
 
 > 📸 **Screenshot:** [Insert GitHub Actions pipeline screenshot showing all jobs green]
 
@@ -332,6 +388,11 @@ pytest tests/ -v
 - `TestListJobs::test_list_jobs_empty_returns_empty_list` — handles empty DB
 
 ---
+## screenshots
+<img width="845" height="59" alt="Screenshot 2026-08-16 230146" src="https://github.com/user-attachments/assets/0e5fd241-60cd-49e1-820b-0043e531ce5f" />
+<img width="941" height="525" alt="Screenshot 2026-08-16 230104" src="https://github.com/user-attachments/assets/6f64b1dd-f0ac-4574-a731-9b3a7a2a869e" />
+<img width="692" height="142" alt="Screenshot 2026-08-16 230014" src="https://github.com/user-attachments/assets/58831989-6a06-4b2a-9eeb-5d861a3a270f" />
+<img width="911" height="371" alt="Screenshot 2026-08-16 225901" src="https://github.com/user-attachments/assets/08be96f2-e36a-470c-aaf8-0b4f3d86a7a0" />
 
 ## Task 5: Networking & Service Communication
 
@@ -346,17 +407,22 @@ docker network inspect lab-job-board_jobboard-network \
   --format '{{range .Containers}}{{.Name}}: {{.IPv4Address}}{{"\n"}}{{end}}'
 ```
 
-**Sample output:**
+**Actual output (2026-08-16):**
 ```
-jobboard-postgres:     172.20.0.2/16
-jobboard-jobs:         172.20.0.3/16
-jobboard-applications: 172.20.0.4/16
-jobboard-frontend:     172.20.0.5/16
-jobboard-nginx:        172.20.0.6/16
+jobboard-postgres:     172.18.0.2/16
+jobboard-jobs:         172.18.0.4/16
+jobboard-applications: 172.18.0.3/16
+jobboard-frontend:     172.18.0.5/16
+jobboard-nginx:        172.18.0.6/16
 ```
 
-**Docker Embedded DNS:**
-Docker provides a built-in DNS server at `127.0.0.11` inside every container. When a container resolves `postgres`, the DNS server maps it to the current IP of the `postgres` container — this works even if IPs change (e.g., after a restart). Container names and service names from `docker-compose.yml` are automatically registered.
+**Docker Embedded DNS — verified:**
+```bash
+docker exec jobboard-jobs python3 -c "import socket; print(socket.gethostbyname('postgres'))"
+# Output: 172.18.0.2
+```
+
+Docker provides a built-in DNS server at `127.0.0.11` inside every container. When `jobs-service` resolves the hostname `postgres`, Docker's embedded DNS returns `172.18.0.2` — the current IP of the postgres container. This works even if IPs change after a restart because the DNS mapping updates automatically. Container names and service names from `docker-compose.yml` are automatically registered.
 
 **Why `jobs-service:8000` fails from browser:**
 The hostname `jobs-service` only exists on the Docker internal network (`jobboard-network`). The user's browser runs outside Docker and uses the host DNS, which has no record for `jobs-service`. Only `localhost` (and port 80, via nginx) is reachable from outside.
@@ -435,12 +501,17 @@ CSP header is already configured in `nginx/nginx.conf`:
 add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none';" always;
 ```
 
-**Verify the header:**
+**Verify the headers (actual output 2026-08-16):**
 ```bash
-curl -I http://localhost/ | grep -i content-security-policy
-# Expected:
-# Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none';
+curl -I http://localhost/ | grep -i -E "content-security|x-frame|x-content"
 ```
+```
+Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none';
+X-Frame-Options: DENY
+X-Content-Type-Options: nosniff
+```
+
+✅ All three security headers confirmed present and correct.
 
 ---
 
