@@ -94,7 +94,7 @@ jobs:
       - name: Create .env for build
         run: |
           cp .env.example .env
-          sed -i 's/CHANGE_ME_strong_password_here!/CItest@Passw0rd#2024/g' .env
+          sed -i 's/CHANGE_ME_strong_password_here!/CItestPassw0rd2024/g' .env
 
       - name: Build all images
         run: |
@@ -184,7 +184,7 @@ jobs:
       - name: Create .env
         run: |
           cp .env.example .env
-          sed -i 's|CHANGE_ME_strong_password_here!|CItest@Passw0rd2024|g' .env
+          sed -i 's|CHANGE_ME_strong_password_here!|CItestPassw0rd2024|g' .env
           echo "=== .env contents ==="
           cat .env
 
@@ -271,7 +271,7 @@ jobs:
       - name: Create .env
         run: |
           cp .env.example .env
-          sed -i 's/CHANGE_ME_strong_password_here!/CItest@Passw0rd#2024/g' .env
+          sed -i 's/CHANGE_ME_strong_password_here!/CItestPassw0rd2024/g' .env
 
       - name: Build and push jobs-service
         uses: docker/build-push-action@v5
