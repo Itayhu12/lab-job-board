@@ -1,0 +1,156 @@
+###############################################################################
+# Job Board Platform — Docker Compose Orchestration
+# Tasks covered: 2.1 (logging), 2.2 (env vars), 2.3 (restart + dependency ordering)
+###############################################################################
+
+networks:
+  jobboard-network:
+    driver: bridge
+
+volumes:
+  postgres-data:
+    name: jobboard-postgres-data
+
+services:
+
+  # ── PostgreSQL Database ────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: jobboard-postgres
+    restart: unless-stopped                      # Task 2.3: restart policy
+    networks:
+      - jobboard-network
+    volumes:
+      - postgres-data:/var/lib/postgresql/data   # Named volume for persistence
+      - ./init-db:/docker-entrypoint-initdb.d:ro # SQL init scripts (read-only)
+    environment:
+      POSTGRES_DB:       ${POSTGRES_DB}
+      POSTGRES_USER:     ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    # Task 2.1: Structured logging
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    ports:
+      - "5432:5432"       # Only expose for debugging; remove in production
+
+  # ── Jobs Service (FastAPI/Python) ─────────────────────────────────────────
+  jobs-service:
+    build:
+      context: ./jobs-service
+      dockerfile: Dockerfile
+    container_name: jobboard-jobs
+    restart: unless-stopped
+    networks:
+      - jobboard-network
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    depends_on:
+      postgres:
+        condition: service_healthy           # Task 2.3: wait for healthy DB
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # ── Applications Service (Node.js/Express) ────────────────────────────────
+  applications-service:
+    build:
+      context: ./applications-service
+      dockerfile: Dockerfile
+    container_name: jobboard-applications
+    restart: unless-stopped
+    networks:
+      - jobboard-network
+    environment:
+      DB_HOST:     postgres
+      DB_PORT:     5432
+      DB_NAME:     ${POSTGRES_DB}
+      DB_USER:     ${POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      NODE_ENV:    production
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # ── React Frontend ────────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: jobboard-frontend
+    restart: unless-stopped
+    networks:
+      - jobboard-network
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    depends_on:
+      jobs-service:
+        condition: service_healthy
+      applications-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # ── Nginx Reverse Proxy (entry point) ────────────────────────────────────
+  nginx:
+    build:
+      context: ./nginx
+      dockerfile: Dockerfile
+    container_name: jobboard-nginx
+    restart: unless-stopped
+    networks:
+      - jobboard-network
+    ports:
+      - "80:80"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    depends_on:
+      frontend:
+        condition: service_healthy
+      jobs-service:
+        condition: service_healthy
+      applications-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:80/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s

@@ -1,0 +1,300 @@
+###############################################################################
+# CI/CD Pipeline — Job Board Platform
+# Task 4: GitHub Actions
+# Stages: lint → test → build → scan → integration-test → push (main only)
+###############################################################################
+
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: ["main", "develop"]
+  pull_request:
+    branches: ["main"]
+
+env:
+  REGISTRY: docker.io
+  IMAGE_PREFIX: ${{ secrets.DOCKERHUB_USERNAME }}/jobboard
+
+jobs:
+
+  # ── 1. Python Linting (Task 4.2) ─────────────────────────────────────────
+  lint-python:
+    name: Python Lint (flake8)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install flake8
+        run: pip install flake8
+
+      - name: Run flake8
+        run: |
+          flake8 jobs-service/main.py \
+            --max-line-length=120 \
+            --ignore=E501,W503
+
+  # ── 2. Node.js Security Audit (Task 4.2) ─────────────────────────────────
+  audit-node:
+    name: Node.js Dependency Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        working-directory: applications-service
+        run: npm ci
+
+      - name: Run npm audit
+        working-directory: applications-service
+        # Allow moderate and lower; fail only on high/critical
+        run: npm audit --audit-level=high
+
+  # ── 3. Unit Tests — Jobs Service (Task 4.3) ───────────────────────────────
+  unit-tests:
+    name: Unit Tests (pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        working-directory: jobs-service
+        run: pip install -r requirements.txt
+
+      - name: Run pytest
+        working-directory: jobs-service
+        run: pytest tests/ -v --tb=short
+
+  # ── 4. Build Images (Task 4.2) ────────────────────────────────────────────
+  build-images:
+    name: Build Docker Images
+    runs-on: ubuntu-latest
+    needs: [lint-python, audit-node, unit-tests]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Create .env for build
+        run: |
+          cp .env.example .env
+          sed -i 's/CHANGE_ME_strong_password_here!/CItest@Passw0rd#2024/g' .env
+
+      - name: Build all images
+        run: |
+          docker compose build --no-cache
+          echo "✅ All images built successfully"
+
+      - name: Save images as artifacts
+        run: |
+          docker save \
+            $(docker compose config --images | tr '\n' ' ') \
+            -o images.tar || \
+          docker compose build --no-cache && \
+          docker images --format "{{.Repository}}:{{.Tag}}" | grep jobboard | \
+          xargs docker save -o images.tar
+
+      - name: Upload image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-images
+          path: images.tar
+          retention-days: 1
+
+  # ── 5. Trivy Security Scan (Task 4.2) ─────────────────────────────────────
+  trivy-scan:
+    name: Trivy Vulnerability Scan
+    runs-on: ubuntu-latest
+    needs: [build-images]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download images
+        uses: actions/download-artifact@v4
+        with:
+          name: docker-images
+
+      - name: Load images
+        run: docker load -i images.tar
+
+      - name: Install Trivy
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y wget apt-transport-https gnupg
+          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | \
+            gpg --dearmor | sudo tee /usr/share/keyrings/trivy.gpg > /dev/null
+          echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] \
+            https://aquasecurity.github.io/trivy-repo/deb generic main" | \
+            sudo tee /etc/apt/sources.list.d/trivy.list
+          sudo apt-get update -qq && sudo apt-get install -y trivy
+
+      - name: Scan jobs-service
+        run: |
+          trivy image --exit-code 0 --severity HIGH,CRITICAL \
+            --format table lab-job-board-jobs-service:latest || true
+
+      - name: Scan applications-service
+        run: |
+          trivy image --exit-code 0 --severity HIGH,CRITICAL \
+            --format table lab-job-board-applications-service:latest || true
+
+      - name: Scan frontend
+        run: |
+          trivy image --exit-code 0 --severity HIGH,CRITICAL \
+            --format table lab-job-board-frontend:latest || true
+
+      - name: Scan nginx
+        run: |
+          trivy image --exit-code 0 --severity HIGH,CRITICAL \
+            --format table lab-job-board-nginx:latest || true
+
+  # ── 6. Integration Tests (Task 4.2) ──────────────────────────────────────
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: [build-images]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download images
+        uses: actions/download-artifact@v4
+        with:
+          name: docker-images
+
+      - name: Load images
+        run: docker load -i images.tar
+
+      - name: Create .env
+        run: |
+          cp .env.example .env
+          sed -i 's/CHANGE_ME_strong_password_here!/CItest@Passw0rd#2024/g' .env
+
+      - name: Start services
+        run: docker compose up -d --wait
+        timeout-minutes: 5
+
+      - name: Wait for services
+        run: |
+          echo "Waiting for services to be ready..."
+          sleep 15
+
+      - name: Test jobs API
+        run: |
+          curl -f http://localhost/health/jobs
+          echo ""
+          echo "✅ Jobs service health check passed"
+
+      - name: Test applications API
+        run: |
+          curl -f http://localhost/health/applications
+          echo ""
+          echo "✅ Applications service health check passed"
+
+      - name: Test frontend is accessible
+        run: |
+          curl -f -s -o /dev/null -w "%{http_code}" http://localhost/ | grep -q "200"
+          echo "✅ Frontend accessible"
+
+      - name: Test create and fetch job
+        run: |
+          JOB=$(curl -sf -X POST http://localhost/api/jobs/ \
+            -H "Content-Type: application/json" \
+            -d '{"title":"CI Test Job","description":"Created by CI","company":"TestCo","location":"CI-Land","salary_range":"$0"}')
+          echo "Created job: $JOB"
+          JOB_ID=$(echo $JOB | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+          curl -sf http://localhost/api/jobs/${JOB_ID}
+          echo ""
+          echo "✅ Job create + fetch integration test passed"
+
+      - name: Show container logs on failure
+        if: failure()
+        run: docker compose logs --tail=50
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
+
+  # ── 7. Push to Docker Hub (main branch only, Task 4.2) ────────────────────
+  push-images:
+    name: Push Images to Docker Hub
+    runs-on: ubuntu-latest
+    needs: [trivy-scan, integration-tests]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Create .env
+        run: |
+          cp .env.example .env
+          sed -i 's/CHANGE_ME_strong_password_here!/CItest@Passw0rd#2024/g' .env
+
+      - name: Build and push jobs-service
+        uses: docker/build-push-action@v5
+        with:
+          context: ./jobs-service
+          push: true
+          tags: |
+            ${{ env.IMAGE_PREFIX }}-jobs-service:latest
+            ${{ env.IMAGE_PREFIX }}-jobs-service:${{ github.sha }}
+
+      - name: Build and push applications-service
+        uses: docker/build-push-action@v5
+        with:
+          context: ./applications-service
+          push: true
+          tags: |
+            ${{ env.IMAGE_PREFIX }}-applications-service:latest
+            ${{ env.IMAGE_PREFIX }}-applications-service:${{ github.sha }}
+
+      - name: Build and push frontend
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          push: true
+          tags: |
+            ${{ env.IMAGE_PREFIX }}-frontend:latest
+            ${{ env.IMAGE_PREFIX }}-frontend:${{ github.sha }}
+
+      - name: Build and push nginx
+        uses: docker/build-push-action@v5
+        with:
+          context: ./nginx
+          push: true
+          tags: |
+            ${{ env.IMAGE_PREFIX }}-nginx:latest
+            ${{ env.IMAGE_PREFIX }}-nginx:${{ github.sha }}
+
+      - name: Summary
+        run: |
+          echo "## 🐳 Docker Hub Push Summary" >> $GITHUB_STEP_SUMMARY
+          echo "Images pushed with tags: \`latest\` and \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ env.IMAGE_PREFIX }}-jobs-service\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ env.IMAGE_PREFIX }}-applications-service\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ env.IMAGE_PREFIX }}-frontend\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ env.IMAGE_PREFIX }}-nginx\`" >> $GITHUB_STEP_SUMMARY

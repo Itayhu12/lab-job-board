@@ -1,0 +1,25 @@
+{
+  "name": "applications-service",
+  "version": "1.0.0",
+  "description": "Job applications microservice — Express/Node.js",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js",
+    "test": "jest --passWithNoTests"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "pg": "^8.11.5",
+    "dotenv": "^16.4.5",
+    "cors": "^2.8.5"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "supertest": "^7.0.0",
+    "nodemon": "^3.1.1"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
