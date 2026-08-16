@@ -183,17 +183,10 @@ jobs:
 
       - name: Create .env
         run: |
-          cat > .env << 'EOF'
-          POSTGRES_DB=jobboard
-          POSTGRES_USER=jobuser
-          POSTGRES_PASSWORD=CItest@Passw0rd2024
-          DB_HOST=postgres
-          DB_PORT=5432
-          DB_NAME=jobboard
-          DB_USER=jobuser
-          DB_PASSWORD=CItest@Passw0rd2024
-          NODE_ENV=production
-          EOF
+          cp .env.example .env
+          sed -i 's|CHANGE_ME_strong_password_here!|CItest@Passw0rd2024|g' .env
+          echo "=== .env contents ==="
+          cat .env
 
       - name: Start services
         run: docker compose up -d
@@ -202,14 +195,22 @@ jobs:
       - name: Wait for all services to be healthy
         run: |
           echo "Waiting for services to be healthy..."
+          READY=false
           for i in $(seq 1 24); do
             if curl -sf http://localhost/api/jobs/ > /dev/null 2>&1; then
               echo "✅ Jobs API is ready (attempt $i)"
+              READY=true
               break
             fi
             echo "Attempt $i/24 — waiting 5s..."
+            docker compose ps --format "table {{.Name}}\t{{.Status}}"
             sleep 5
           done
+          if [ "$READY" = "false" ]; then
+            echo "❌ Services did not become ready — dumping logs"
+            docker compose logs --tail=30
+            exit 1
+          fi
 
       - name: Test frontend is accessible
         run: |
