@@ -183,34 +183,52 @@ jobs:
 
       - name: Create .env
         run: |
-          cp .env.example .env
-          sed -i 's/CHANGE_ME_strong_password_here!/CItest@Passw0rd#2024/g' .env
+          cat > .env << 'EOF'
+          POSTGRES_DB=jobboard
+          POSTGRES_USER=jobuser
+          POSTGRES_PASSWORD=CItest@Passw0rd2024
+          DB_HOST=postgres
+          DB_PORT=5432
+          DB_NAME=jobboard
+          DB_USER=jobuser
+          DB_PASSWORD=CItest@Passw0rd2024
+          NODE_ENV=production
+          EOF
 
       - name: Start services
-        run: docker compose up -d --wait
+        run: docker compose up -d
         timeout-minutes: 5
 
-      - name: Wait for services
+      - name: Wait for all services to be healthy
         run: |
-          echo "Waiting for services to be ready..."
-          sleep 15
-
-      - name: Test jobs API
-        run: |
-          curl -f http://localhost/health/jobs
-          echo ""
-          echo "✅ Jobs service health check passed"
-
-      - name: Test applications API
-        run: |
-          curl -f http://localhost/health/applications
-          echo ""
-          echo "✅ Applications service health check passed"
+          echo "Waiting for services to be healthy..."
+          for i in $(seq 1 24); do
+            if curl -sf http://localhost/api/jobs/ > /dev/null 2>&1; then
+              echo "✅ Jobs API is ready (attempt $i)"
+              break
+            fi
+            echo "Attempt $i/24 — waiting 5s..."
+            sleep 5
+          done
 
       - name: Test frontend is accessible
         run: |
-          curl -f -s -o /dev/null -w "%{http_code}" http://localhost/ | grep -q "200"
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost/)
+          echo "Frontend HTTP status: $STATUS"
+          [ "$STATUS" = "200" ]
           echo "✅ Frontend accessible"
+
+      - name: Test jobs API
+        run: |
+          RESULT=$(curl -sf http://localhost/api/jobs/)
+          echo "Jobs list response: $RESULT"
+          echo "✅ Jobs API health check passed"
+
+      - name: Test applications API
+        run: |
+          RESULT=$(curl -sf http://localhost/api/applications/)
+          echo "Applications list response: $RESULT"
+          echo "✅ Applications API health check passed"
 
       - name: Test create and fetch job
         run: |
@@ -219,10 +237,10 @@ jobs:
             -d '{"title":"CI Test Job","description":"Created by CI","company":"TestCo","location":"CI-Land","salary_range":"$0"}')
           echo "Created job: $JOB"
           JOB_ID=$(echo $JOB | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
-          curl -sf http://localhost/api/jobs/${JOB_ID}
-          echo ""
+          echo "Job ID: $JOB_ID"
+          FETCHED=$(curl -sf http://localhost/api/jobs/${JOB_ID})
+          echo "Fetched job: $FETCHED"
           echo "✅ Job create + fetch integration test passed"
-
       - name: Show container logs on failure
         if: failure()
         run: docker compose logs --tail=50
