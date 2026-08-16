@@ -28,3 +28,4 @@ done
 
 echo "=> Done! Current FROM lines:"
 grep -rn '^FROM' --include='Dockerfile' .
+
