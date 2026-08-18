@@ -1132,16 +1132,20 @@ minikube cannot be a CI deploy target — a GitHub-hosted Actions runner has no 
 
 ## Screenshots
 
-**All resources deployed and running (`kubectl get all -n jobboard` — pods, services, deployments, replicasets, HPAs):**
+**All manifests applied (`kubectl get all -n jobboard` — pods, services, deployments, replicasets, HPAs):**
 
 ![All k8s resources running in the jobboard namespace](screenshots/k8s-all-resources.png)
 
-**Job board UI rendering end-to-end via the real Ingress path:**
+**All pods Running and Ready (`kubectl get pods -n jobboard`):**
 
-![Job board UI loaded via minikube Ingress, showing 16 available positions](screenshots/k8s-frontend-working.png)
+![All pods Running and Ready in the jobboard namespace](screenshots/k8s-pods-running.png)
+
+**Application accessible via minikube IP (browser screenshot):**
+
+![Job board UI loaded via minikube IP through the real Ingress path, showing 16 available positions](screenshots/k8s-frontend-working.png)
 
 ## Submission Checklist
-- [x] Screenshots showing all resources deployed and running — see **Screenshots** section above; `kubectl get pods -n jobboard` (all 7 pods `1/1 Running`, see Task 6) and a browser screenshot of the job board UI fully rendered at `http://<minikube-ip>/` with 16 positions listed, loaded end-to-end through the real Ingress path (`/api/jobs` → `200 OK`)
+- [x] Screenshots showing all resources deployed and running — see **Screenshots** section above: `kubectl get all -n jobboard` (all manifests applied), `kubectl get pods -n jobboard` (all 7 pods `1/1 Running`), and a browser screenshot of the job board UI fully rendered at `http://<minikube-ip>/` with 16 positions listed, loaded end-to-end through the real Ingress path (`/api/jobs` → `200 OK`)
 - [x] NetworkPolicy manifest — `k8s/09-network-policy.yaml` — committed to GitHub at commit `914fcf2`
 - [x] ConfigMap manifest — `k8s/10-configmap.yaml` — committed to GitHub at commit `914fcf2`
 - [x] GitHub Actions pipeline updated with Kubernetes deployment job — `deploy-to-k8s` appended to the real `.github/workflows/ci.yml` (job #8, `needs: [push-images]`), pushed to GitHub (`71cfac4..914fcf2`); smoke-test steps verified locally against minikube; the job's actual execution inside GitHub Actions against a real reachable cluster has not been confirmed (see caveat in Task 6)
