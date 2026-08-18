@@ -364,7 +364,7 @@ git push -u origin main
 - `itayhugi/jobboard-frontend:latest`
 - `itayhugi/jobboard-nginx:latest`
 
-> 📸 **Screenshot:** [Insert GitHub Actions pipeline screenshot showing all jobs green]
+![GitHub Actions pipeline — all jobs green](screenshots/part1-cicd-all-green.png)
 
 ### 4.3 Unit Tests
 
@@ -518,19 +518,23 @@ X-Content-Type-Options: nosniff
 ## Screenshots
 
 ### 1. Application Running at localhost
-> 📸 [Insert screenshot of http://localhost showing the Job Board UI]
+
+![Job Board UI running in the browser](screenshots/part1-app-running.png)
 
 ### 2. `docker compose ps` — All Containers Healthy
 ```bash
 docker compose ps
 ```
-> 📸 [Insert screenshot showing all 5 containers with "healthy" status]
+
+![docker compose ps showing all containers healthy](screenshots/part1-docker-compose-ps-healthy.png)
 
 ### 3. GitHub Actions — All Jobs Green
-> 📸 [Insert screenshot of GitHub Actions run with all jobs passing]
+
+![GitHub Actions pipeline — all jobs green](screenshots/part1-cicd-all-green.png)
 
 ### 4. Docker Hub Repository
-> 📸 [Insert screenshot of Docker Hub showing 4 pushed images]
+
+![Docker Hub repository showing pushed images](screenshots/part1-dockerhub-images.png)
 
 ---
 
