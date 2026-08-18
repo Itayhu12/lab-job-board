@@ -870,12 +870,12 @@ kubectl get secret postgres-secret -n jobboard -o jsonpath='{.data.POSTGRES_PASS
 apiVersion: v1
 data:
   POSTGRES_DB: am9iYm9hcmQ=
-  POSTGRES_PASSWORD: WUM5WGxzZmpYR1BEUUtXZFRHREVwbmZLUmVZPQ==
+  POSTGRES_PASSWORD: <redacted-base64-value>
   POSTGRES_USER: cG9zdGdyZXM=
 kind: Secret
 type: Opaque
 ```
-Decoded password: `YC9XlsfjXGPDQKWdTGDEpnfKReY=` — decoded with a single `base64 -d` command, no key or credential required.
+Decoded password: `<redacted — decoded successfully with a single \`base64 -d\` command, no key or credential required>` (actual value intentionally not recorded in this document — it's a credential, not something that belongs in a file that may end up committed/shared).
 
 **Kubernetes Secrets are base64-encoded, not encrypted. What does this mean for security?**
 Base64 is a reversible *encoding* (making arbitrary binary data safe to represent as text in YAML/JSON), not *encryption* — there's no key involved, and anyone with read access to the Secret object can decode it in one command, as demonstrated above. Practically, this means: RBAC permissions on Secret objects are the *only* real protection — any user, service account, or compromised pod that can `kubectl get secret -o yaml` (or read the Secret's mounted file/env var from inside a pod that consumes it) has the plaintext credential instantly. It also means Kubernetes' backing datastore, etcd, stores Secret data unencrypted by default, unless encryption-at-rest is separately configured at the cluster level — so anyone with etcd access (direct or via a backup snapshot) can extract every Secret in the cluster with zero cryptographic effort. Base64 exists purely for safe text representation, not confidentiality.
