@@ -32,12 +32,12 @@ spec:
           image: frontend:latest
           imagePullPolicy: IfNotPresent
           ports:
-            - containerPort: 80
+            - containerPort: 8080
               name: http
           readinessProbe:
             httpGet:
               path: /
-              port: 80
+              port: 8080
             initialDelaySeconds: 5
             periodSeconds: 10
             timeoutSeconds: 3
@@ -45,7 +45,7 @@ spec:
           livenessProbe:
             httpGet:
               path: /
-              port: 80
+              port: 8080
             initialDelaySeconds: 15
             periodSeconds: 20
             timeoutSeconds: 3
@@ -58,7 +58,7 @@ spec:
               cpu: 100m
               memory: 64Mi
           securityContext:
-            runAsNonRoot: false   # nginx needs root to bind :80
+            runAsNonRoot: false   # left false; USER nginx in Dockerfile already drops root, binds 8080 (unprivileged)
             readOnlyRootFilesystem: false
             allowPrivilegeEscalation: false
 
@@ -77,5 +77,5 @@ spec:
   ports:
     - name: http
       port: 80
-      targetPort: 80
+      targetPort: 8080
   type: ClusterIP

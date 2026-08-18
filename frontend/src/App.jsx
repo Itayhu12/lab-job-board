@@ -92,7 +92,7 @@ function PostJobForm({ onPosted }) {
     e.preventDefault();
     setLoading(true); setError(null); setMsg(null);
     try {
-      const res = await fetch(`${API_BASE}/api/jobs/`, {
+      const res = await fetch(`${API_BASE}/api/jobs`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(form),
@@ -143,7 +143,7 @@ export default function App() {
   const fetchJobs = async () => {
     setLoading(true); setError(null);
     try {
-      const res = await fetch(`${API_BASE}/api/jobs/`);
+      const res = await fetch(`${API_BASE}/api/jobs`);
       if (!res.ok) throw new Error('Failed to fetch jobs');
       setJobs(await res.json());
     } catch (err) {
