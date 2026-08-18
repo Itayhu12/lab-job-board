@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: jobboard-config
+  namespace: jobboard
+data:
+  LOG_LEVEL:    "info"
+  MAX_JOBS:     "100"
+  ALLOWED_ORIGINS: "http://localhost,http://jobboard.local"

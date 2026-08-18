@@ -32,3 +32,4 @@ Thumbs.db
 
 # Backup files (commit manually when needed)
 # db-backup.sql
+k8s/01-secret.yaml

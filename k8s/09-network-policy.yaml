@@ -1,0 +1,25 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-network-policy
+  namespace: jobboard
+  labels:
+    app.kubernetes.io/part-of: jobboard
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector:
+    matchLabels:
+      app: postgres
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: jobs-service
+        - podSelector:
+            matchLabels:
+              app: applications-service
+      ports:
+        - protocol: TCP
+          port: 5432
