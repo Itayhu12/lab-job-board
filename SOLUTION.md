@@ -164,7 +164,7 @@ docker compose logs --follow nginx
 ```bash
 # Copy and configure
 cp .env.example .env
-nano .env   # Set POSTGRES_PASSWORD=MyStr0ng@Pass#2024! (16+ chars)
+nano .env   # Set POSTGRES_PASSWORD=<your-strong-password> (16+ chars, mixed case, symbols)
 
 # Verify .env is gitignored
 cat .gitignore | grep .env   # Should show .env
@@ -287,10 +287,10 @@ docker exec jobboard-postgres pg_dump \
   -d jobboard \
   --no-owner \
   --no-acl \
-  -F plain > backup_jobboard.sql
+  -F plain > db-backup.sql
 
 # Verify — pg_dump uses COPY format by default, not INSERT INTO
-grep "^COPY\|^[0-9]" backup_jobboard.sql
+grep "^COPY\|^[0-9]" db-backup.sql
 ```
 
 **Actual backup output (scanned 2026-08-16):**
@@ -318,14 +318,14 @@ docker compose up -d postgres
 docker compose ps
 
 # 3. Restore the backup
-cat backup_jobboard.sql | docker exec -i jobboard-postgres \
+cat db-backup.sql | docker exec -i jobboard-postgres \
   psql -U jobuser -d jobboard
 
 # 4. Start remaining services
 docker compose up -d
 ```
 
-> 📎 See `backup_jobboard.sql` committed to this repository.
+> 📎 See `db-backup.sql` committed to this repository.
 
 ---
 
@@ -468,7 +468,7 @@ location /api/applications/ {
 
 ```bash
 # Create secret file
-echo "MyStr0ng@Pass#2024!" | docker secret create db_password -
+echo "<your-strong-password>" | docker secret create db_password -
 
 # To use in standalone Docker Swarm (not compose):
 docker stack deploy -c docker-compose.yml jobboard
